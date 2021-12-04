@@ -5,6 +5,11 @@ using DrWatson
 using Scibelt, DifferentialEquations, Printf, CSV, DataFrames, ProgressMeter
 using Plots
 
+using TerminalLoggers: TerminalLogger
+using Logging: global_logger
+
+global_logger(TerminalLogger())
+
 ##%
 grid_pars = Dict(
     :L => 100,
@@ -15,7 +20,7 @@ physical_pars = Dict(
     :θ => deg2rad(4.6),
     :Re => 50.0,
     :Ka => 769.8,
-    :ξ => [0.001, 1., 100., 500., 1000.],
+    :ξ => [0.001, 1000.],
     :δ => 0.5,
     :εₕ => 0.78,
     :Da => [0.001, 0.01]
@@ -25,18 +30,16 @@ solver_pars = Dict(
     :progress => true,
     :tmax => 1000.0,
     :Δt => 2.0,
-    :alg => :(Rosenbrock23(autodiff=false))
+    :alg => :(QNDF())
 )
 
-parameters = dict_list(merge(grid_pars, physical_pars, solver_pars))
+ps = dict_list(merge(grid_pars, physical_pars, solver_pars))
 
 ##%
 function process_parameters(d, FSV)
-    @show d
     @unpack θ, Re, Ka, ξ, δ, εₕ, Da = d
     δᵦ = √(Da / εₕ)
     Fr = √(FSV * Re)
-    # Fr = √(Re / FSV)
 
     Ct = cos(θ) / sin(θ)
     We = Ka / (Re^(5 / 3) * FSV^(1 / 3))
@@ -62,9 +65,8 @@ function run_simulation(d)
     N = length(x)
 
     coeff_df = read_table(Da)
-    p = process_parameters(d, coeff_df[:FSV][1])
-    @show p
-    odefunc, ints = build_onesided_3eq(N, Δx, p, coeff_df; eval_sparsity=true);
+    p = process_parameters(d, coeff_df[1, :FSV])
+    odefunc, ints = build_onesided_3eq(N, Δx, p, coeff_df)
 
     I = ints[:I]
     PI = ints[:PI]
@@ -74,9 +76,15 @@ function run_simulation(d)
     U = vec_alternate(h, qₗ, qₚ);
     problem = ODEProblem(odefunc, U, tmax, p);
     at = range(problem.tspan..., step=2)
+
+    cb = FunctionCallingCallback(
+        (u, t, integrator) -> @info("Sim running", Da, ξ, t);
+        func_everystep=true,
+        )
+
     @time sol = solve(
         problem, eval(alg);
-        saveat=at, progress=progress, progress_steps=progress_steps
+        saveat=at, progress=progress, progress_steps=progress_steps, callback=cb
             )
     @unpack h, qₗ, qₚ = unvec_alternate(
         Array(sol)' |> collect, length(x),
@@ -90,13 +98,12 @@ resdir = (args...) -> datadir("sims", "one_sided", "three_eq", args...)
 mkpath(resdir())
 
 # %%
-@showprogress map(parameters) do p
+Threads.@threads for p in ps
     filename = resdir(savename(p, "csv"; ignores=["progress"]))
     if isfile(filename)
         return filename
     end
     coords, fields = run_simulation(p)
-
     CSV.write(filename, tidify_results(coords, fields))
 end
 

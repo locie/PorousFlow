@@ -22,13 +22,13 @@ physical_pars = Dict(
 )
 
 solver_pars = Dict(
-    :progress => true,
+    :progress => false,
     :tmax => 1000.0,
     :Δt => 2.0,
     :alg => :(Rosenbrock23(autodiff=false))
 )
 
-parameters = dict_list(merge(grid_pars, physical_pars, solver_pars))
+ps = dict_list(merge(grid_pars, physical_pars, solver_pars))
 
 ##%
 function process_parameters(d, FSV)
@@ -64,7 +64,7 @@ function run_simulation(d)
     coeff_df = read_table(Da)
     p = process_parameters(d, coeff_df[:FSV][1])
     @show p
-    odefunc, ints = build_onesided_2eq(N, Δx, p, coeff_df; eval_sparsity=true);
+    odefunc, ints = build_onesided_2eq(N, Δx, p, coeff_df);
 
     I = ints[:I]
     h = @. cos(x * 2 * π / L) * 0.1 + 1
@@ -72,9 +72,15 @@ function run_simulation(d)
     U = vec_alternate(h, q);
     problem = ODEProblem(odefunc, U, tmax, p);
     at = range(problem.tspan..., step=2)
+
+    cb = FunctionCallingCallback(
+        (u, t, integrator) -> @info("Sim running", Da, ξ, t);
+        func_everystep=true,
+        )
+
     @time sol = solve(
         problem, eval(alg);
-        saveat=at, progress=progress, progress_steps=progress_steps
+        saveat=at, progress=progress, progress_steps=progress_steps, callback=cb
             )
     @unpack h, q = unvec_alternate(
         Array(sol)' |> collect, length(x),
@@ -88,7 +94,7 @@ resdir = (args...) -> datadir("sims", "one_sided", "two_eq", args...)
 mkpath(resdir())
 
 # %%
-@showprogress map(parameters) do p
+Threads.@threads for p in ps
     filename = resdir(savename(p, "csv"; ignores=["progress"]))
     if isfile(filename)
         return filename

@@ -5,7 +5,7 @@ export tidify_results, compute_adim_number
 export isoutlier_IQR, isoutlier_zscore
 export filteroutlier_zscore!, filteroutlier_IQR!
 export filteroutlier_zscore, filteroutlier_IQR
-using DataFrames, Parameters, StatsBase
+using DataFrames, UnPack, StatsBase
 
 """
     @dict vars...

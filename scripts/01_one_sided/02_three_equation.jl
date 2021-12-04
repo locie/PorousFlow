@@ -1,11 +1,13 @@
+# %%
 using DrWatson
 @quickactivate
 
-##%
+# %%
 using Scibelt, DifferentialEquations, Printf, CSV, DataFrames
 using Plots
+using Sundials
 
-##%
+# %%
 grid_pars = Dict(
     :L => 200,
     :Δx => 0.2
@@ -25,12 +27,13 @@ solver_pars = Dict(
     :progress => true,
     :tmax => 1000.0,
     :Δt => 2.0,
-    :alg => :(Rosenbrock23(autodiff=false))
+    :alg => :(QNDF()),
+    # :alg => :(Rosenbrock23(autodiff=false))
 )
 
 parameters = merge(grid_pars, physical_pars, solver_pars)
 
-##%
+# %%
 function process_parameters(d, FSV)
     @unpack θ, Re, Ka, ξ, δ, εₕ, Da = d
     δᵦ = √(Da / εₕ)
@@ -43,26 +46,26 @@ function process_parameters(d, FSV)
 end
 
 function read_table(Da)
-    coeff_file = @sprintf("data/inputs/one_sided/2phase_Da_%g", Da)
+    coeff_file = @sprintf("data/inputs/one_sided/coeffs_Da_%g", Da)
     coeff_df = CSV.File(coeff_file; delim=' ', ignorerepeated=true) |> DataFrame
     sort!(coeff_df, :H)
     return coeff_df
 end
 
-##%
+# %%
 function run_simulation(d)
     @unpack L, Δx = d
     @unpack θ, Re, Ka, ξ, δ, εₕ, Da = d
     @unpack tmax, Δt, alg = d
     progress = get(d, :progress, false)
-    progress_steps = get(d, :progress_steps, 50)
+    progress_steps = get(d, :progress_steps, 1)
 
     x = 0:Δx:L-Δx
     N = length(x)
 
     coeff_df = read_table(Da)
-    p = process_parameters(d, coeff_df[:FSV][1])
-    odefunc, ints = build_onesided_3eq_full(N, Δx, p, coeff_df; eval_sparsity=true);
+    p = process_parameters(d, coeff_df[1, :FSV])
+    odefunc, ints = build_onesided_3eq(N, Δx, p, coeff_df; eval_sparsity=true);
 
     I = ints[:I]
     PI = ints[:PI]
@@ -83,16 +86,16 @@ function run_simulation(d)
     return (t = sol.t, x = x), (h = h, qₗ = qₗ, qₚ = qₚ)
 end
 
-##%
+# %%
 coords, fields = run_simulation(parameters)
 
-##%
+# %%
 resdir = (args...) -> datadir("sims", "one_sided", "three_eq", args...)
 mkpath(resdir())
 filename = resdir(savename(parameters, "csv"))
 CSV.write(filename, tidify_results(coords, fields))
 
-##%
+# %%
 p = plot(coords[:x], circshift(fields[:h][end, :] .- 0.5, 600))
 savefig(p, plotsdir(@sprintf("three_eq_Da_%g.png", parameters[:Da])))
 p

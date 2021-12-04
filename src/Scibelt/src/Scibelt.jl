@@ -1,12 +1,15 @@
 module Scibelt
     using Reexport
-    include("./Models.jl")
-    include("./Discretization.jl")
-    include("./Utils.jl")
-    include("./IO.jl")
 
+    include("./Discretization.jl")
     @reexport using .Discretization
+
+    include("./Utils.jl")
     @reexport using .Utils
-    @reexport using .Models
+
+    include("./IO.jl")
     @reexport using .IO
+
+    include("./Models.jl")
+    @reexport using .Models
 end
