@@ -19,6 +19,7 @@ Scibelt = "425ddbe7-5e8b-464b-8655-a6c6da87a36c"
 SparseDiffTools = "47a9eef4-7e08-11e9-0b38-333d64bd3804"
 Sundials = "c3572dad-4567-51f8-b174-8c6c989267f4"
 TerminalLoggers = "5d786b92-1e48-4d6f-9151-6b4477ca9bed"
+WGLMakie = "276b4fcb-3e11-5398-bf8b-a0c2d153d008"
 
 [compat]
 julia = "1.5.0"

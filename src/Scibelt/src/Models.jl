@@ -14,7 +14,7 @@ function make_model_builder(
     prealloc_symbols::Vector{Symbol},
     ints_symbols::Union{Vector{Symbol},Nothing} = nothing;
     upwind = false)
-    function model_builder(nx, Δx::T, p₀, coeff_df = nothing; bc = :periodic) where {T}
+    function model_builder(nx, Δx::T, p₀, coeff_df = nothing; bc = :periodic, eval_sparsity=true) where {T}
         ops = Dict(zip([:Dx, :Dxx, :Dxxx], build_1D_operators(T, nx, Δx; bc = bc)))
         if upwind
             ops = merge(ops, Dict(zip([:Dxm, :Dxp], build_upwind_operators(T, nx, Δx; bc = bc))))
@@ -42,6 +42,9 @@ function make_model_builder(
         update! = (dU, U, p, t) -> update_template(
             dU, U, p, t, cache, ops, ints; openflow = ifelse(bc == :noflux, true, false)
         )
+        if !eval_sparsity
+            return ODEFunction(update!), ints
+        end
 
         J = zeros(nu * nx, nu * nx)
         U = rand(nu * nx)

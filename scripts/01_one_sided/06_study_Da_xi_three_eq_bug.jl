@@ -5,7 +5,7 @@ using DrWatson
 ##%
 using Scibelt, DifferentialEquations, Printf, CSV, DataFrames, ProgressMeter
 using Distributions, Sundials, Interpolations
-using Plots
+using WGLMakie
 
 using TerminalLoggers: TerminalLogger
 using Logging: global_logger
@@ -15,7 +15,7 @@ global_logger(TerminalLogger())
 ##%
 grid_pars = Dict(
     :L => 2000.0,
-    :Δx => 0.5,
+    :Δx => 0.25,
     :buffer_len => 0.0,
 )
 
@@ -24,10 +24,10 @@ physical_pars = Dict(
     :Re => 50.0,
 
     :Ka => 769.8,
-    :ξ => [1.0, 1000.0],
+    :ξ => 1000.0,
     :δ => 0.5,
     :εₕ => 0.78,
-    :Da => [0.001, 0.01]
+    :Da => 0.001
 )
 
 solver_pars = Dict(
@@ -39,7 +39,7 @@ solver_pars = Dict(
     :alg => :(CVODE_BDF(linear_solver=:GMRES))
 )
 
-ps = dict_list(merge(grid_pars, physical_pars, solver_pars))
+p = merge(grid_pars, physical_pars, solver_pars)
 
 ##%
 function process_parameters(d, FSV)
@@ -67,8 +67,9 @@ function read_table(Da)
     return coeff_df
 end
 
+
 ##%
-function run_simulation(d)
+coords, fields = let d=p
     @unpack L, buffer_len, Δx = d
     @unpack Da, ξ = d
     @unpack tmax, Δt, fnoise, alg = d
@@ -95,9 +96,22 @@ function run_simulation(d)
     problem = ODEProblem(odefunc, U, tmax, p)
     at = range(problem.tspan..., step = Δt)
 
+    t_node = Node(0.0)
+    U_node = Node(U)
+    h_node = lift((U)->U[1:3:end], U_node)
+    qₚ_node = lift((U)->U[2:3:end], U_node)
+    qₗ_node = lift((U)->U[3:3:end], U_node)
+
+    fig = Figure()
+    lines(fig[1, 1], x, h_node, color=:black)
+    lines(fig[2, 1], x, qₚ_node, color=:blue)
+    lines!(fig[2, 1], x, qₗ_node, color=:red)
+
+    display(fig)
+
     cb = FunctionCallingCallback(
-        (u, t, integrator) -> @info("Sim running", Da, ξ, t);
-        funcat=0:1:tmax |> collect,
+        (u, t, integrator) -> U_node[] = u;
+        # funcat=0:1:tmax |> collect,
         )
 
     @time sol = solve(
@@ -111,21 +125,9 @@ function run_simulation(d)
         Array(sol)' |> collect, length(x),
         h = [:, :, 1], qₗ = [:, :, 2], qₚ = [:, :, 3]
     )
-    return (t = sol.t, x = x), (h = h, qₗ = qₗ, qₚ = qₚ)
+    (t = sol.t, x = x), (h = h, qₗ = qₗ, qₚ = qₚ)
 end
 
 # %%
 resdir = (args...) -> datadir("sims", "one_sided_long", "three_eq", args...)
 mkpath(resdir())
-
-Threads.@threads for p in ps
-    filename = resdir(savename(p, "csv"; ignores = ["progress"]))
-    if isfile(filename)
-        return filename
-    end
-    coords, fields = run_simulation(p)
-
-    CSV.write(filename, tidify_results(coords, fields))
-end
-
-# %%
