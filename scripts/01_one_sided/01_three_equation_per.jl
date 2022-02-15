@@ -1,54 +1,54 @@
-##%
+# %%
 using DrWatson
 @quickactivate
 
-##%
-using Scibelt, DifferentialEquations, Printf, CSV, DataFrames, ProgressMeter
-using Distributions, Sundials, Interpolations
-using Plots
+# %%
+using Scibelt, DifferentialEquations, Printf, CSV, DataFrames
+using Plots, SparseArrays, ForwardDiff
+using Sundials
 
 using TerminalLoggers: TerminalLogger
 using Logging: global_logger
 
 global_logger(TerminalLogger())
 
-##%
+# %%
 grid_pars = Dict(
-    :L => 2000.0,
-    :Δx => 0.5,
-    :buffer_len => 0.0,
+    :L => 100,
+    :Δx => 0.1
 )
 
 physical_pars = Dict(
-    :θ => deg2rad(4.6),
-    :Re => 50.0,
-
+    :θ => deg2rad(90),
+    :Re => 10.0,
     :Ka => 769.8,
-    :ξ => [1.0, 1000.0],
+    :ξ => 1.0,
     :δ => 0.5,
     :εₕ => 0.78,
-    :Da => [0.001, 0.01]
+    :Da => 0.01,
 )
 
 solver_pars = Dict(
     :progress => true,
-    :tmax => 5000.0,
+    :tmax => 400.0,
     :Δt => 2.0,
-    :fnoise => 10.0,
-    # :alg => :(QNDF()),
-    :alg => :(CVODE_BDF(linear_solver=:GMRES))
+    # :alg => :(CVODE_BDF(linear_solver = :GMRES)),
+    :alg => :(QNDF()),
 )
 
-ps = dict_list(merge(grid_pars, physical_pars, solver_pars))
+parameters = merge(grid_pars, physical_pars, solver_pars)
 
-##%
+# %%
 function process_parameters(d, FSV)
     @unpack θ, Re, Ka, ξ, δ, εₕ, Da = d
     δᵦ = √(Da / εₕ)
     Fr = √(FSV * Re)
+    # Fr = √(Re / FSV)
+
     Ct = cos(θ) / sin(θ)
     We = Ka / (Re^(5 / 3) * FSV^(1 / 3))
-    Dict{Symbol,Any}(:Re => Re,
+    return Dict{Symbol,Any}(
+        :Re => Re,
         :We => We,
         :Ct => Ct,
         :Fr => Fr,
@@ -57,7 +57,8 @@ function process_parameters(d, FSV)
         :εₕ => εₕ,
         :δ => δ,
         :δᵦ => δᵦ,
-        :Da => Da)
+        :Da => Da
+    )
 end
 
 function read_table(Da)
@@ -67,45 +68,47 @@ function read_table(Da)
     return coeff_df
 end
 
-##%
+# %%
 function run_simulation(d)
-    @unpack L, buffer_len, Δx = d
-    @unpack Da, ξ = d
-    @unpack tmax, Δt, fnoise, alg = d
+    @unpack L, Δx = d
+    @unpack θ, Re, Ka, ξ, δ, εₕ, Da = d
+    @unpack tmax, Δt, alg = d
     progress = get(d, :progress, false)
-    progress_steps = get(d, :progress_steps, 50)
+    progress_steps = get(d, :progress_steps, 1)
 
-    x = 0:Δx:(L+buffer_len)
+    x = 0:Δx:L-Δx
     N = length(x)
 
     coeff_df = read_table(Da)
+    interps = build_interps(coeff_df)
     p = process_parameters(d, coeff_df[1, :FSV])
-    t_sample = range(0, tmax, step = 1 / fnoise)
 
-    # inject signal on h, qₚ and qₗ will take the proper value on the model
-    p[:signal] = LinearInterpolation(t_sample, rand(Uniform(0.9, 1.1), size(t_sample)))
-    odefunc, ints = build_onesided_3eq(N, Δx, p, coeff_df; bc = :noflux, eval_sparsity = false)
+    update! = build_onesided_3eq(N, Δx, interps; bc = PeriodicCondition())
 
-    I = ints[:I]
-    PI = ints[:PI]
-    h = ones(size(x))
+    I = interps[:I]
+    PI = interps[:PI]
+    h = @. cos(x * 2 * π / L) * 0.1 + 1
     qₗ = @. I(h) * h^3
     qₚ = @. PI(h) * h^3
     U = vec_alternate(h, qₗ, qₚ)
+
+    sparsity = sparse(ForwardDiff.jacobian((dU, U) -> update!(dU, U, p, 0.0), similar(U), U))
+    odefunc = ODEFunction(update!, jac_prototype = sparsity)
+
     problem = ODEProblem(odefunc, U, tmax, p)
     at = range(problem.tspan..., step = Δt)
 
     cb = FunctionCallingCallback(
         (u, t, integrator) -> @info("Sim running", Da, ξ, t);
-        funcat=0:1:tmax |> collect,
-        )
+        funcat = 0:1:tmax |> collect
+    )
 
     @time sol = solve(
         problem, eval(alg);
         saveat = at,
         progress = progress,
         progress_steps = progress_steps,
-        callback=cb
+        callback = cb
     )
     @unpack h, qₗ, qₚ = unvec_alternate(
         Array(sol)' |> collect, length(x),
@@ -115,17 +118,21 @@ function run_simulation(d)
 end
 
 # %%
-resdir = (args...) -> datadir("sims", "one_sided_long", "three_eq", args...)
-mkpath(resdir())
-
-Threads.@threads for p in ps
-    filename = resdir(savename(p, "csv"; ignores = ["progress"]))
-    if isfile(filename)
-        return filename
-    end
-    coords, fields = run_simulation(p)
-
-    CSV.write(filename, tidify_results(coords, fields))
-end
+coords, fields = run_simulation(parameters)
 
 # %%
+# save on "data/sims/periodic"
+resdir = (args...) -> datadir("sims", "periodic", args...)
+mkpath(resdir())
+filename = resdir(savename(parameters, "csv"))
+CSV.write(filename, tidify_results(coords, fields))
+
+# %%
+# shift value to center on max(h)
+p = plot(coords[:x], circshift(fields[:h][end, :], -round(argmax(fields[:h][end, :]) / 2)))
+p
+
+# %%
+@gif for i in 1:length(coords[:t])
+    plot(coords[:x], fields[:h][i, :])
+end

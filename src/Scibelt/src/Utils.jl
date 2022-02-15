@@ -1,11 +1,7 @@
 module Utils
-export dict2ntuple
-export unzip, vec_alternate, unvec_alternate
-export tidify_results, compute_adim_number
-export isoutlier_IQR, isoutlier_zscore
-export filteroutlier_zscore!, filteroutlier_IQR!
-export filteroutlier_zscore, filteroutlier_IQR
-using DataFrames, UnPack, StatsBase
+export dict2ntuple, unzip, vec_alternate, unvec_alternate
+export tidify_results, build_interps, @preallocate
+using DataFrames, UnPack, StatsBase, Interpolations
 
 """
     @dict vars...
@@ -47,10 +43,10 @@ end
 Convert a dictionary (with `Symbol` or `String` as key type) to
 a `NamedTuple`.
 """
-function dict2ntuple(dict::Dict{String,T}) where T
+function dict2ntuple(dict::Dict{String,T}) where {T}
     NamedTuple{Tuple(Symbol.(keys(dict)))}(values(dict))
 end
-function dict2ntuple(dict::Dict{Symbol,T}) where T
+function dict2ntuple(dict::Dict{Symbol,T}) where {T}
     NamedTuple{Tuple(keys(dict))}(values(dict))
 end
 
@@ -84,60 +80,43 @@ function tidify_results(coords::NamedTuple, fields::NamedTuple)
     return DataFrame(
         hcat(gridded_coords..., gridded_fields...),
         vcat(keys(coords)..., keys(fields)...)
-        )
+    )
 end
 
-function compute_adim_number(d)
-    @unpack ρ, ν, σ_inf, cp, β, Pr, Re, Bi, g = d
-    lᵥ = (ν^2 / (g * sin(β)))^(1 / 3)
-    tᵥ = (ν / (g * sin(β))^2)^(1 / 3)
-    Ct = cot(β)
-    Kaᵥ = σ_inf / (ρ * g^(1 / 3) * ν^(4 / 3))
-    Ka = Kaᵥ / (sin(β)^(1 / 3))
-    bhN = (3 * Re)^(1 / 3) * lᵥ
-    Pe = Pr * Re
-    We = Ka / ((3 * Re)^(2 / 3))
-    B = Bi * (3 * Re)^(1 / 3)
-    tf = 1 / ((tᵥ * lᵥ) / bhN)
-    lf = 1 / bhN
-    θ_flat = 1 / (1 + B)
-    ϕ_flat = - B * θ_flat
-    merge(d, @dict lᵥ tᵥ Ct Kaᵥ Ka Pe We B tf lf θ_flat ϕ_flat)
-end
+"""
+    @preallocate caches... = template
 
-function isoutlier_zscore(y::AbstractArray; zscore_threshold=3.0)
-    return abs.(zscore(y)) .> zscore_threshold
-end
+build a preallocated array for each of the `caches` variable.
 
-function filteroutlier_zscore!(y::AbstractArray; zscore_threshold=3.0, drop=false)
-    y[isoutlier_zscore(y, zscore_threshold=zscore_threshold)] .= NaN
-    if drop
-        filter!((x)->~isnan(x), y)
+# Examples
+```julia-repl
+julia> @preallocate A, B = zeros(50, 50)
+```
+"""
+macro preallocate(expr)
+    expr.head != :(=) && error("Expression needs to be of form `a, b = c`")
+    items, template = expr.args
+    items = isa(items, Symbol) ? [items] : items.args
+    kd = [:($key = $template) for key in items]
+    kd_namedtuple = :(NamedTuple{Tuple($items)}(Tuple([$template for _ in $items])))
+    kdblock = Expr(:block, kd...)
+    expr = quote
+        $kdblock
+        $kd_namedtuple
     end
+    return esc(expr)
 end
 
-function filteroutlier_zscore(y::AbstractArray; zscore_threshold=3.0, drop=false)
-    y = copy(y)
-    filteroutlier_zscore!(y; zscore_threshold=zscore_threshold, drop=drop)
-    return y
-end
-
-function isoutlier_IQR(y::AbstractArray; nIQR=1.5)
-    Q1, Q3 = quantile(y, [0.25, 0.75])
-    IQR = abs(Q3 - Q1)
-    return @. (y < (Q1 - nIQR * IQR)) | (y > (Q3 + nIQR * IQR))
-end
-
-function filteroutlier_IQR!(y::AbstractArray; nIQR=1.5, drop=false)
-    y[isoutlier_IQR(y; nIQR=nIQR)] .= NaN
-    if drop
-        filter!((x)->~isnan(x), y)
+function build_interps(coeff_df, ints_symbols = nothing)
+    if ~isnothing(coeff_df)
+        build_interp(key) = LinearInterpolation(coeff_df[!, :H], coeff_df[!, key], extrapolation_bc = Flat())
+        if isnothing(ints_symbols)
+            ints_symbols = filter!(key -> key != :H, names(coeff_df))
+        end
+        return dict2ntuple(Dict((key, build_interp(key)) for key in ints_symbols))
     end
+
+    return ints
 end
 
-function filteroutlier_IQR(y::AbstractArray; nIQR=1.5, drop=false)
-    y = copy(y)
-    filteroutlier_IQR!(y; nIQR=nIQR, drop=drop)
-    return y
-end
 end
