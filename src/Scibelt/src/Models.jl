@@ -36,22 +36,23 @@ function kernel!(
             dqₗ[i] = 0
             dqₚ[i] = 0
             return
-        elseif i >= grid.N - 1
-            dh[i] = -(dx(qₗ, i, grid) + dx(qₚ, i, grid))
-            lidx = i - 1
-            ridx = idx(i + 1, grid)
-            dqₗ[i] = -(
-                (qₗ[ridx] + qₚ[ridx]) * qₗ[ridx] / h[ridx]
-                -
-                (qₗ[lidx] + qₚ[lidx]) * qₗ[lidx] / h[lidx]
-            ) / 2grid.δ
-            dqₚ[i] = -(
-                (qₗ[ridx] + qₚ[ridx]) * qₚ[ridx] / h[ridx]
-                -
-                (qₗ[lidx] + qₚ[lidx]) * qₚ[lidx] / h[lidx]
-            ) / 2grid.δ
-            return
-        end
+        # outlet advection : a tester, semble pas très concluant
+        # elseif i >= grid.N - 1
+        #     dh[i] = -(dx(qₗ, i, grid) + dx(qₚ, i, grid))
+        #     lidx = i - 1
+        #     ridx = idx(i + 1, grid)
+        #     dqₗ[i] = -(
+        #         (qₗ[ridx] + qₚ[ridx]) * qₗ[ridx] / h[ridx]
+        #         -
+        #         (qₗ[lidx] + qₚ[lidx]) * qₗ[lidx] / h[lidx]
+        #     ) / 2grid.δ
+        #     dqₚ[i] = -(
+        #         (qₗ[ridx] + qₚ[ridx]) * qₚ[ridx] / h[ridx]
+        #         -
+        #         (qₗ[lidx] + qₚ[lidx]) * qₚ[lidx] / h[lidx]
+        #     ) / 2grid.δ
+        #     return
+        # end
     end
 
     @unpack Re, We, Ct, Fr, ξ = p

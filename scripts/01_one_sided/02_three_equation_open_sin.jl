@@ -1,8 +1,5 @@
 # %%
 using DrWatson
-@quickactivate
-
-# %%
 using Scibelt, DifferentialEquations, Printf, CSV, DataFrames
 using ForwardDiff, SparseArrays
 using Plots
@@ -16,7 +13,7 @@ global_logger(TerminalLogger())
 grid_pars = Dict(
     :L => 500.0,
     :Δx => 0.5,
-    :buffer_len => 100.0,
+    :buffer_len => 0.0,
 )
 
 physical_pars = Dict(

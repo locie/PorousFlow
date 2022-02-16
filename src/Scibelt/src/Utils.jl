@@ -1,7 +1,7 @@
 module Utils
 export dict2ntuple, unzip, vec_alternate, unvec_alternate
 export tidify_results, build_interps, @preallocate
-using DataFrames, UnPack, StatsBase, Interpolations
+using DataFrames, UnPack, Interpolations
 
 """
     @dict vars...

@@ -1,11 +1,7 @@
 # %%
 using DrWatson
-@quickactivate
-
-# %%
 using Scibelt, DifferentialEquations, Printf, CSV, DataFrames
 using Plots, SparseArrays, ForwardDiff
-using Sundials
 
 using TerminalLoggers: TerminalLogger
 using Logging: global_logger
