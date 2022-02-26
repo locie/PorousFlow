@@ -1,6 +1,6 @@
 module Utils
 export dict2ntuple, unzip, vec_alternate, unvec_alternate
-export tidify_results, build_interps, @preallocate
+export tidify_results, build_interps
 using DataFrames, UnPack, Interpolations
 
 """
@@ -83,29 +83,7 @@ function tidify_results(coords::NamedTuple, fields::NamedTuple)
     )
 end
 
-"""
-    @preallocate caches... = template
 
-build a preallocated array for each of the `caches` variable.
-
-# Examples
-```julia-repl
-julia> @preallocate A, B = zeros(50, 50)
-```
-"""
-macro preallocate(expr)
-    expr.head != :(=) && error("Expression needs to be of form `a, b = c`")
-    items, template = expr.args
-    items = isa(items, Symbol) ? [items] : items.args
-    kd = [:($key = $template) for key in items]
-    kd_namedtuple = :(NamedTuple{Tuple($items)}(Tuple([$template for _ in $items])))
-    kdblock = Expr(:block, kd...)
-    expr = quote
-        $kdblock
-        $kd_namedtuple
-    end
-    return esc(expr)
-end
 
 function build_interps(coeff_df, ints_symbols = nothing)
     if ~isnothing(coeff_df)

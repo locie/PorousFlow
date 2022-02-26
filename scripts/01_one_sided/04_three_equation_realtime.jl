@@ -1,7 +1,8 @@
 # %%
 using DrWatson
 using Scibelt, DifferentialEquations, Printf, CSV, DataFrames
-using Plots, SparseArrays, ForwardDiff
+using SparseArrays, ForwardDiff
+using GLMakie
 
 using TerminalLoggers: TerminalLogger
 using Logging: global_logger
@@ -10,7 +11,7 @@ global_logger(TerminalLogger())
 
 # %%
 grid_pars = Dict(
-    :L => 400,
+    :L => 800,
     :Δx => 0.5
 )
 
@@ -96,11 +97,40 @@ odefunc = ODEFunction(update!, jac_prototype = sparsity)
 problem = ODEProblem(odefunc, U, tmax, p)
 at = range(problem.tspan..., step = Δt)
 
+# %%
+# setup real_time vizu, see https://makie.juliaplots.org for more complex plots
+# can be long before it displays
+# observables are object that trigger a callback when changed
+# Makie use them to update the plot : modifying U_node[] with a new U value
+# will change h_node and update the vizu.
+t_node = Observable(0.0)
+U_node = Observable(U)
+h_node = @lift($U_node[1:3:end])
+fig = lines(
+    x, h_node,
+    axis = (title = @lift("t = $(round($t_node, digits = 1))"),)
+)
+display(fig)
+
+# %%
+function update_viz!(t, u)
+    t_node[] = t
+    U_node[] = u
+end
+
+viz_update_cb = FunctionCallingCallback(
+    (u, t, integrator) -> update_viz!(t, u),
+    funcat = at, # comment this line to update at every step
+)
+
+# %%
+
 @time sol = solve(
     problem, eval(alg);
     saveat = at,
     progress = progress,
-    progress_steps = progress_steps
+    progress_steps = progress_steps,
+    callback = viz_update_cb
 )
 @unpack h, qₗ, qₚ = unvec_alternate(
     Array(sol)' |> collect, length(x),
@@ -114,6 +144,3 @@ resdir = (args...) -> datadir("sims", "open", args...)
 mkpath(resdir())
 filename = resdir(savename(parameters, "csv"))
 CSV.write(filename, tidify_results(coords, fields))
-
-# %%
-heatmap(coords.x, coords.t, fields.h)
