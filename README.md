@@ -5,12 +5,13 @@ to make a reproducible scientific project named PorousFlow
 
 To (locally) reproduce this project, do the following:
 
-0. Download this code base. Notice that raw data are typically not included in the
+1. Download this code base. Notice that raw data are typically not included in the
    git-history and may need to be downloaded independently.
-1. Open a Julia console and do:
+2. Open a Julia console in the project folder and do:
    ```
    julia> using Pkg
-   julia> Pkg.activate("path/to/this/project")
+   julia> Pkg.activate(".")
+   julia> Pkg.develop("src/Scibelt")
    julia> Pkg.instantiate()
    ```
 
